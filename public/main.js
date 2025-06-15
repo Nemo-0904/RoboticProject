@@ -1,7 +1,7 @@
 // frontend/js/main.js
-const API_BASE_URL = "YOUR_RENDER_BACKEND_URL_PLACEHOLDER"; // <<< THIS WILL BE UPDATED LATER
+const API_BASE_URL = "https://roboticco.onrender.com"; // <<< THIS WILL BE UPDATED LATER
 
-const stripePublicKey = "pk_test_51RZsGyQnckO6Q134MosfGqEbDUtkbdWVlFE7mwP4HhO6tPg1O71G1WUYpfjxmxsSw2EOb1wzTTU8uw7xYk47ZtEy004vgMC544"; // Your publishable key
+const stripePublicKey = "pk_test_51RZsGyQnckO6Q134MosfGqEbDUtkbdWVlFE7mwP4HhO6tPg1O71WUYpfjxmxsSw2EOb1wzTTU8uw7xYk47ZtEy004vgMC544"; // Your publishable key
 
 document.addEventListener("DOMContentLoaded", () => {
     // --- Global Cart Variable ---
@@ -13,9 +13,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const cartTotalSpan = document.getElementById("cart-total");
     const buyNowBtn = document.getElementById("buy-now-btn");
 
-    // Product container (where fetched products will be displayed)
-    // This variable is no longer strictly needed if products are hardcoded,
-    // but we'll keep it as a placeholder.
     const productsContainer = document.getElementById("products-container");
 
 
@@ -40,20 +37,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (cart.length === 0) {
             cartItemsList.innerHTML = "<li>Your cart is empty.</li>";
+            cartTotalSpan.innerText = "0"; // Set total to 0 for an empty cart
+            cartModal.style.display = "block"; // Show the modal
             return;
-        } else {
-            cart.forEach((item, index) => {
-                const listItem = document.createElement("li");
-                const itemTotal = item.price * item.quantity;
-                total += itemTotal;
-
-                listItem.innerHTML = `
-                    <span>${item.title} × ${item.quantity} - ₹${itemTotal.toLocaleString("en-IN")}</span>
-                    <button class="remove-item-btn" data-index="${index}">Remove</button>
-                `;
-                cartItemsList.appendChild(listItem);
-            });
         }
+
+        cart.forEach((item, index) => {
+            const listItem = document.createElement("li");
+            const itemTotal = item.price * item.quantity;
+            total += itemTotal;
+
+            listItem.innerHTML = `
+                <span>${item.title} × ${item.quantity} - ₹${itemTotal.toLocaleString("en-IN")}</span>
+                <button class="remove-item-btn" data-index="${index}">Remove</button>
+            `;
+            cartItemsList.appendChild(listItem);
+        });
 
         cartTotalSpan.innerText = total.toLocaleString("en-IN");
         cartModal.style.display = "block"; // Show the modal
@@ -134,7 +133,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             try {
-                const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+                // Corrected: Using the register endpoint for signup
+                const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
@@ -149,7 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else {
                     alert("Signup successful!");
                     localStorage.setItem("token", data.token); // Store the JWT
-                    window.location.href = "login.html"; // Redirect
+                    window.location.href = "login.html"; // Redirect to login after signup
                 }
             } catch (err) {
                 console.error("Signup Error:", err);
@@ -195,9 +195,9 @@ document.addEventListener("DOMContentLoaded", () => {
             btn.addEventListener("click", () => {
                 const productCard = btn.closest(".masonry-item");
                 const title = productCard.querySelector("h3").innerText.trim();
-                const priceText = productCard.querySelector("span").innerText.trim(); // Changed to span directly
+                const priceText = productCard.querySelector("span").innerText.trim();
                 const price = parseFloat(priceText.replace("₹", "").replace(/,/g, ""));
-                const id = btn.dataset.productId; // Gets the ID from HTML!
+                const id = btn.dataset.productId;
 
                 // Check if item already in cart to increment quantity
                 const existingItem = cart.find((item) => item.id === id);
@@ -229,37 +229,45 @@ document.addEventListener("DOMContentLoaded", () => {
     if (buyNowBtn) {
         buyNowBtn.addEventListener("click", async () => {
             const token = localStorage.getItem("token");
-    // main.js (part of buyNowBtn event listener)
-    try {
-        const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": token ? `Bearer ${token}` : ''
-            },
-            body: JSON.stringify({ cartItems: cart })
-        });
 
-        if (!res.ok) {
-            const errorData = await res.json(); // <--- This line might be problematic if the response isn't JSON
-            throw new Error(errorData.message || res.statusText);
-        }
+            try {
+                // Corrected: Using a dedicated endpoint for creating checkout sessions
+                const res = await fetch(`${API_BASE_URL}/api/create-checkout-session`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": token ? `Bearer ${token}` : ''
+                    },
+                    body: JSON.stringify({ cartItems: cart })
+                });
 
-        const data = await res.json();
+                if (!res.ok) {
+                    let errorMessage = res.statusText;
+                    const contentType = res.headers.get("content-type");
+                    if (contentType && contentType.includes("application/json")) {
+                        const errorData = await res.json();
+                        errorMessage = errorData.message || errorMessage;
+                    } else {
+                        errorMessage = await res.text(); // Get raw text if not JSON
+                    }
+                    throw new Error(errorMessage);
+                }
 
-        const stripe = Stripe(stripePublicKey);
-        const { error } = await stripe.redirectToCheckout({
-            sessionId: data.id
-        });
+                const data = await res.json();
 
-        if (error) {
-            throw new Error(error.message);
-        }
+                const stripe = Stripe(stripePublicKey);
+                const { error } = await stripe.redirectToCheckout({
+                    sessionId: data.id
+                });
 
-    } catch (error) {
-        console.error("Payment Error:", error);
-        alert("Payment initiation failed: " + error.message); 
-    }
+                if (error) {
+                    throw new Error(error.message);
+                }
+
+            } catch (error) {
+                console.error("Payment Error:", error);
+                alert("Payment initiation failed: " + error.message);
+            }
         });
     }
 
